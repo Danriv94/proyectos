@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checklist con Persistencia</title>
+    <style>
+        body { font-family: Arial, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background-color: #f4f4f4; }
+        .container { max-width: 600px; padding: 20px; background-color: white; border-radius: 8px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); }
+        h1, h3 { text-align: center; }
+        ul { list-style: none; padding: 0; }
+        li { margin: 10px 0; display: flex; align-items: center; }
+        .button { padding: 10px 20px; background-color: #4CAF50; color: white; border: none; cursor: pointer; margin-top: 10px; }
+        .button:hover { background-color: #45a049; }
+        #login-section, #checklist-container { display: none; }
+        input[type="text"], input[type="password"] {
+            width: 100%; 
+            padding: 8px; 
+            margin: 5px 0; 
+            border: 1px solid #ccc; 
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .edit-field { border: none; background: none; color: black; font-size: inherit; width: 100%; }
+        .remove-checkbox { margin-left: 10px; }
+        .report { margin-top: 20px; }
+        .report-details { display: none; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div id="login-section" class="container">
+        <h1>Iniciar Sesión</h1>
+        <input type="text" id="login-username" placeholder="Nombre de usuario">
+        <input type="password" id="login-password" placeholder="Contraseña" onkeydown="checkEnter(event, 'login')">
+        <button class="button" onclick="login()">Iniciar sesión</button>
+    </div>
+
+    <div id="checklist-container" class="container">
+        <h1>Checklist de Tareas</h1>
+        <ul id="checklist"></ul>
+        
+        <button class="button" onclick="addItem()">Agregar Ítem</button>
+        <button class="button" onclick="removeSelectedItems()">Quitar Ítems Seleccionados</button>
+        <button class="button" onclick="saveChanges()">Guardar Cambios</button>
+        <button class="button" onclick="logout()">Cerrar Sesión</button>
+        
+        <h3>Agregar Usuario Regular</h3>
+        <input type="text" id="new-username" placeholder="Nombre de usuario">
+        <input type="password" id="new-password" placeholder="Contraseña">
+        <button class="button" onclick="createUser()">Crear Usuario Regular</button>
+        
+        <h3>Usuarios Regulares</h3>
+        <ul id="user-list"></ul>
+
+        <div id="report-section">
+            <h3>Enviar Reporte</h3>
+            <button class="button" onclick="sendReport()">Enviar Reporte</button>
+            <div id="reports"></div>
+        </div>
+    </div>
+
+    <script>
+        const adminPassword = "Admin#2414";
+        const users = {}; // Almacenar usuarios regulares
+        const loginHistory = {}; // Almacenar historial de inicio de sesión
+        let currentUser = null;
+        let isAdmin = false;
+        let hasUnsavedChanges = false;
+
+        function login() {
+            const username = document.getElementById("login-username").value;
+            const password = document.getElementById("login-password").value;
+
+            if (username === "admin" && password === adminPassword) {
+                isAdmin = true;
+                document.getElementById("login-section").style.display = "none";
+                document.getElementById("checklist-container").style.display = "block";
+                loadChecklist();
+                loadUsers();
+                return;
+            }
+
+            if (users[username] && users[username].password === password) {
+                currentUser = username;
+                logUserLogin(username);
+                document.getElementById("login-section").style.display = "none";
+                document.getElementById("checklist-container").style.display = "block";
+                loadChecklist();
+                return;
+            }
+
+            alert("Credenciales incorrectas. Intenta nuevamente.");
+        }
+
+        function logUserLogin(username) {
+            if (!loginHistory[username]) loginHistory[username] = [];
+            const date = new Date().toLocaleString('es-AR', { hour12: false });
+            loginHistory[username].push(date);
+        }
+
+        function checkEnter(event, type) {
+            if (event.key === "Enter") {
+                if (type === 'login') login();
+            }
+        }
+
+        function addItem() {
+            const checklist = document.getElementById("checklist");
+            const newItem = document.createElement("li");
+            newItem.innerHTML = `<input type="checkbox" class="task-checkbox"> 
+                                 <input type="text" value="Nueva Tarea" class="edit-field" oninput="markUnsavedChanges()" onkeydown="checkNewItemEnter(event, this)">
+                                 <input type="checkbox" class="remove-checkbox" title="Seleccionar para eliminar">`;
+            checklist.appendChild(newItem);
+            markUnsavedChanges();
+            newItem.querySelector(".edit-field").focus(); 
+        }
+
+        function checkNewItemEnter(event, inputField) {
+            if (event.key === "Enter") {
+                addItem();
+            }
+        }
+
+        function removeSelectedItems() {
+            const checklist = document.getElementById("checklist");
+            const items = checklist.querySelectorAll("li");
+            items.forEach(item => {
+                const removeCheckbox = item.querySelector(".remove-checkbox");
+                if (removeCheckbox.checked) {
+                    checklist.removeChild(item);
+                }
+            });
+            markUnsavedChanges();
+        }
+
+        function saveChanges() {
+            const checklistItems = [];
+            const items = document.querySelectorAll("#checklist li");
+            items.forEach(item => {
+                const taskName = item.querySelector(".edit-field").value;
+                const isChecked = item.querySelector(".task-checkbox").checked;
+                checklistItems.push({ taskName, isChecked });
+            });
+            localStorage.setItem("checklistItems", JSON.stringify(checklistItems));
+            hasUnsavedChanges = false;
+            alert("Los cambios han sido guardados.");
+        }
+
+        function loadChecklist() {
+            const checklist = document.getElementById("checklist");
+            checklist.innerHTML = "";
+            const savedItems = JSON.parse(localStorage.getItem("checklistItems")) || [];
+
+            savedItems.forEach(item => {
+                const newItem = document.createElement("li");
+                newItem.innerHTML = `<input type="checkbox" class="task-checkbox" ${item.isChecked ? "checked" : ""}>
+                                     <input type="text" value="${item.taskName}" class="edit-field" oninput="markUnsavedChanges()" onkeydown="checkNewItemEnter(event, this)">
+                                     <input type="checkbox" class="remove-checkbox" title="Seleccionar para eliminar">`;
+                checklist.appendChild(newItem);
+            });
+        }
+
+        function logout() {
+            if (hasUnsavedChanges) {
+                const confirmSave = confirm("Tienes cambios sin guardar. ¿Quieres guardar antes de salir?");
+                if (confirmSave) saveChanges();
+            }
+            currentUser = null;
+            isAdmin = false;
+            document.getElementById("checklist-container").style.display = "none";
+            document.getElementById("login-section").style.display = "flex";
+            document.getElementById("login-username").value = '';
+            document.getElementById("login-password").value = '';
+            location.reload();
+        }
+
+        function markUnsavedChanges() {
+            hasUnsavedChanges = true;
+        }
+
+        function createUser() {
+            const username = document.getElementById("new-username").value;
+            const password = document.getElementById("new-password").value;
+            if (username && password) {
+                if (users[username]) {
+                    alert("El usuario ya existe.");
+                    return;
+                }
+                users[username] = { password: password, loginHistory: [] };
+                alert(`Usuario ${username} creado exitosamente.`);
+                loadUsers();
+                document.getElementById("new-username").value = '';
+                document.getElementById("new-password").value = '';
+            } else {
+                alert("Por favor, ingresa un nombre de usuario y una contraseña.");
+            }
+        }
+
+        function loadUsers() {
+            const userList = document.getElementById("user-list");
+            userList.innerHTML = '';
+            for (const [username] of Object.entries(users)) {
+                const userItem = document.createElement("li");
+                userItem.innerHTML = `${username} 
+                                      <button class="remove-checkbox" onclick="removeUser('${username}')">Eliminar</button>`;
+                userList.appendChild(userItem);
+            }
+        }
+
+        function removeUser(username) {
+            delete users[username];
+            loadUsers();
+            alert(`Usuario ${username} eliminado exitosamente.`);
+        }
+
+        function sendReport() {
+            if (!currentUser) {
+                alert("Por favor, inicia sesión primero.");
+                return;
+            }
+            const reportDetails = Object.entries(loginHistory).map(([user, history]) => `${user}: ${history.join(', ')}`).join('<br>');
+            document.getElementById("reports").innerHTML = `<div class="report">
+                <strong>Historial de inicio de sesión:</strong><br>${reportDetails}
+            </div>`;
+            alert("Reporte enviado.");
+        }
+
+        // Inicializa la aplicación
+        document.getElementById("login-section").style.display = "flex";
+    </script>
+</body>
+</html>
